@@ -16,53 +16,56 @@ model User {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  sentMessages     Message[]          @relation("SenderMessages")
-  receivedMessages Message[]          @relation("RecipientMessages")
+  sentMessages     Message[]            @relation("SenderMessages")
+  receivedMessages Message[]            @relation("RecipientMessages")
   groups           GroupMember[]
-  createdGroups    Group[]            @relation("GroupCreator")
+  createdGroups    Group[]              @relation("GroupCreator")
   sessions         SessionParticipant[]
 
   @@map("users")
 }
 
 model Message {
-  id        Int      @id @default(autoincrement())
+  id        Int         @id @default(autoincrement())
   content   String
   type      MessageType @default(TEXT)
-  createdAt DateTime @default(now())
+  createdAt DateTime    @default(now())
 
   senderId    Int
   recipientId Int?
   groupId     Int?
   sessionId   Int
 
-  sender     User   @relation("SenderMessages", fields: [senderId], references: [id], onDelete: Cascade)
-  recipient  User?  @relation("RecipientMessages", fields: [recipientId], references: [id], onDelete: Cascade)
-  group      Group?
-  session    Session @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  sender    User    @relation("SenderMessages", fields: [senderId], references: [id], onDelete: Cascade)
+  recipient User?   @relation("RecipientMessages", fields: [recipientId], references: [id], onDelete: Cascade)
+  group     Group?  @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  session   Session @relation(fields: [sessionId], references: [id], onDelete: Cascade)
 
   @@map("messages")
 }
 
 model Session {
-  id          Int      @id @default(autoincrement())
-  type        SessionType @default(PRIVATE)
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  id        Int         @id @default(autoincrement())
+  type      SessionType @default(PRIVATE)
+  createdAt DateTime    @default(now())
+  updatedAt DateTime    @updatedAt
 
+  // 关系
   participants SessionParticipant[]
   messages     Message[]
+  groupId      Int? // 新增：如果是群聊会话，关联到群组
+  group        Group?               @relation(fields: [groupId], references: [id], onDelete: Cascade)
 
   @@map("sessions")
 }
 
 model SessionParticipant {
-  id         Int      @id @default(autoincrement())
-  userId     Int
-  sessionId  Int
+  id        Int @id @default(autoincrement())
+  userId    Int
+  sessionId Int
 
-  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  session    Session  @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  session Session @relation(fields: [sessionId], references: [id], onDelete: Cascade)
 
   @@unique([userId, sessionId])
   @@map("session_participants")
@@ -75,10 +78,10 @@ model Group {
   createdAt DateTime @default(now())
 
   creatorId Int
-  creator   User     @relation("GroupCreator", fields: [creatorId], references: [id])
+  creator   User          @relation("GroupCreator", fields: [creatorId], references: [id])
   members   GroupMember[]
   messages  Message[]
-  sessions  Session[]
+  sessions  Session[] // 群组对应的会话
 
   @@map("groups")
 }
@@ -88,8 +91,8 @@ model GroupMember {
   userId  Int
   groupId Int
 
-  user    User  @relation(fields: [userId], references: [id], onDelete: Cascade)
-  group   Group @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  user  User  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  group Group @relation(fields: [groupId], references: [id], onDelete: Cascade)
 
   @@unique([userId, groupId])
   @@map("group_members")
