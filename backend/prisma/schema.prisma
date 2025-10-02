@@ -1,0 +1,107 @@
+// backend/prisma/schema.prisma
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id        Int      @id @default(autoincrement())
+  username  String   @unique
+  password  String
+  avatar    String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  sentMessages     Message[]          @relation("SenderMessages")
+  receivedMessages Message[]          @relation("RecipientMessages")
+  groups           GroupMember[]
+  createdGroups    Group[]            @relation("GroupCreator")
+  sessions         SessionParticipant[]
+
+  @@map("users")
+}
+
+model Message {
+  id        Int      @id @default(autoincrement())
+  content   String
+  type      MessageType @default(TEXT)
+  createdAt DateTime @default(now())
+
+  senderId    Int
+  recipientId Int?
+  groupId     Int?
+  sessionId   Int
+
+  sender     User   @relation("SenderMessages", fields: [senderId], references: [id], onDelete: Cascade)
+  recipient  User?  @relation("RecipientMessages", fields: [recipientId], references: [id], onDelete: Cascade)
+  group      Group?
+  session    Session @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  @@map("messages")
+}
+
+model Session {
+  id          Int      @id @default(autoincrement())
+  type        SessionType @default(PRIVATE)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  participants SessionParticipant[]
+  messages     Message[]
+
+  @@map("sessions")
+}
+
+model SessionParticipant {
+  id         Int      @id @default(autoincrement())
+  userId     Int
+  sessionId  Int
+
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  session    Session  @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, sessionId])
+  @@map("session_participants")
+}
+
+model Group {
+  id        Int      @id @default(autoincrement())
+  name      String
+  avatar    String?
+  createdAt DateTime @default(now())
+
+  creatorId Int
+  creator   User     @relation("GroupCreator", fields: [creatorId], references: [id])
+  members   GroupMember[]
+  messages  Message[]
+  sessions  Session[]
+
+  @@map("groups")
+}
+
+model GroupMember {
+  id      Int @id @default(autoincrement())
+  userId  Int
+  groupId Int
+
+  user    User  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  group   Group @relation(fields: [groupId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, groupId])
+  @@map("group_members")
+}
+
+enum MessageType {
+  TEXT
+  IMAGE
+  FILE
+}
+
+enum SessionType {
+  PRIVATE
+  GROUP
+}
