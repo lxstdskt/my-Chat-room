@@ -1,0 +1,129 @@
+import {
+  WebSocketGateway,
+  WebSocketServer,
+  SubscribeMessage,
+  OnGatewayConnection,
+  OnGatewayDisconnect,
+} from '@nestjs/websockets';
+import { Server, Socket } from 'socket.io';
+import { JwtService } from '@nestjs/jwt';
+import { UsersService } from '../users/users.service';
+import { Logger } from '@nestjs/common'; // 新增导入
+
+// 存储在线用户
+const onlineUsers = new Map<number, string>(); // userId -> socketId
+
+@WebSocketGateway({
+  cors: {
+    origin: '*', // 开发阶段允许所有来源，生产环境要改成具体域名
+  },
+})
+export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
+  private readonly logger = new Logger(ChatGateway.name); // 新增 logger
+
+  @WebSocketServer()
+  server: Server;
+
+  constructor(
+    private jwtService: JwtService,
+    private usersService: UsersService,
+  ) {}
+
+  // 处理客户端连接
+  async handleConnection(client: Socket) {
+    try {
+      const token = client.handshake.auth.token;
+      if (!token) {
+        client.disconnect();
+        return;
+      }
+
+      // 验证JWT token - 添加 try-catch 错误处理
+      let payload;
+      let user;
+      try {
+        payload = this.jwtService.verify(token);
+        user = await this.usersService.findById(payload.sub);
+      } catch (error) {
+        this.logger.error('JWT 验证失败或用户查找失败:', error); // 使用 logger
+        client.disconnect();
+        return;
+      }
+
+      if (!user) {
+        this.logger.error('用户不存在，用户ID:', payload.sub); // 使用 logger
+        client.disconnect();
+        return;
+      }
+
+      // 存储用户连接信息
+      onlineUsers.set(user.id, client.id);
+      client.data.userId = user.id;
+
+      this.logger.log(`用户 ${user.username} 已连接，socketId: ${client.id}`); // 使用 logger 替换 console.log
+
+      // 通知所有用户该用户上线
+      this.server.emit('user_online', {
+        userId: user.id,
+        username: user.username,
+      });
+
+    } catch (error) {
+      this.logger.error('连接处理异常:', error); // 使用 logger
+      client.disconnect();
+    }
+  }
+
+  // 处理客户端断开
+  async handleDisconnect(client: Socket) {
+    const userId = client.data.userId;
+    if (userId) {
+      onlineUsers.delete(userId);
+      
+      // 通知所有用户该用户下线
+      this.server.emit('user_offline', { userId });
+      
+      this.logger.log(`用户 ${userId} 已断开连接`); // 使用 logger 替换 console.log
+    }
+  }
+
+  // 处理私聊消息
+  @SubscribeMessage('send_private_message')
+  async handlePrivateMessage(client: Socket, data: { toUserId: number; content: string }) {
+    const fromUserId = client.data.userId;
+    const toSocketId = onlineUsers.get(data.toUserId);
+
+    if (toSocketId) {
+      // 发送给接收者
+      this.server.to(toSocketId).emit('new_private_message', {
+        fromUserId,
+        content: data.content,
+        timestamp: new Date(),
+      });
+    }
+
+    // 同时发送回发送者（用于确认）
+    return {
+      event: 'message_sent',
+      data: {
+        toUserId: data.toUserId,
+        content: data.content,
+        timestamp: new Date(),
+      },
+    };
+  }
+
+  // 处理"正在输入"状态
+  @SubscribeMessage('typing')
+  async handleTyping(client: Socket, data: { toUserId: number; isTyping: boolean }) {
+    const fromUserId = client.data.userId;
+    const toSocketId = onlineUsers.get(data.toUserId);
+
+    if (toSocketId) {
+      this.server.to(toSocketId).emit('user_typing', {
+        fromUserId,
+        isTyping: data.isTyping,
+      });
+    }
+  }
+}
